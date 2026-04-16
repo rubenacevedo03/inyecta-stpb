@@ -1,0 +1,409 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ────────────────────────────────────────────────────────────────────
+
+enum Rol {
+  ADMIN
+  LEGAL
+  OPERADOR
+  CONSULTOR
+}
+
+enum Producto {
+  PYME
+  PERSONAL
+  EXPRESS
+  STPB
+}
+
+enum TipoAcreditado {
+  PF
+  PM
+}
+
+enum StatusOp {
+  PROSPECTO
+  ANALISIS
+  APROBADA
+  ACTIVA
+  LIQUIDADA
+  EN_MORA
+  EJECUTADA
+  CANCELADA
+}
+
+enum StatusBloque {
+  PENDIENTE
+  EN_PROCESO
+  PRE_AUTORIZADO
+  PRE_AUTORIZADO_CONDICIONADO
+  EXPEDIENTE_INTEGRADO
+  DICTAMEN_VIABLE
+  DICTAMEN_VIABLE_CONDICIONADO
+  VALIDADO
+  OBSERVADO
+  FORMALIZADO
+  RECHAZADO
+  NO_VIABLE
+  CERRADO
+}
+
+enum StatusPago {
+  PENDIENTE
+  PAGADO
+  PARCIAL
+  VENCIDO
+  CONDONADO
+}
+
+enum StatusDocumento {
+  PENDIENTE
+  SOLICITADO
+  RECIBIDO
+  VALIDADO
+}
+
+enum TipoDocumento {
+  // Acreditado PF
+  IDENTIFICACION_OFICIAL
+  CURP
+  COMPROBANTE_DOMICILIO
+  CONSTANCIA_SITUACION_FISCAL
+  ESTADOS_CUENTA
+  COMPROBANTE_INGRESOS
+  ESCRITURAS_INMUEBLE
+  CLG
+  BOLETAS_PREDIALES
+  AVALUO
+  POLIZA_SEGURO
+  AUTORIZACION_BURO
+  // Acreditado PM adicionales
+  ACTA_CONSTITUTIVA
+  PODERES_NOTARIALES
+  IDENTIFICACION_REP_LEGAL
+  ALTA_SAT
+  ESTADOS_FINANCIEROS
+  // Inversionista
+  IDENTIFICACION_INVERSIONISTA
+  CSF_INVERSIONISTA
+  DOMICILIO_INVERSIONISTA
+  CLABE_INVERSIONISTA
+  CARTA_PROPIETARIO_REAL
+  CONVENIO_PARTICIPACION
+  // Legal
+  CONTRATO_CREDITO
+  ESCRITURA_FIDEICOMISO
+  CONVENIO_PARTICIPACION_FIRMADO
+  INSTRUCCION_EJECUTOR
+  NOMBRAMIENTO_EJECUTOR
+  AVALUO_PROTOCOLIZADO
+  EXPEDIENTE_PLD
+  ALTA_CONDUSEF
+  PODER_NOTARIAL_SOFOM
+  // General
+  REPORTE_VISITA
+  DICTAMEN_CORPORATIVO
+  DICTAMEN_GARANTIAS
+  CONSULTA_LEGAL
+  OTRO
+}
+
+enum TipoSolicitud {
+  SOL_01_DICTAMEN_PREAUTORIZACION
+  SOL_02_CLG_RPP
+  SOL_03_DICTAMEN_CORPORATIVO
+  SOL_04_DICTAMEN_GARANTIAS
+  SOL_05_AVALUO
+  SOL_06_RATIFICACION_CONTINUIDAD
+  SOL_07_CONTRATO_ESCRITURA
+  SOL_08_PROGRAMACION_FIRMA
+}
+
+enum StatusSolicitud {
+  PENDIENTE
+  EN_PROCESO
+  COMPLETADA
+  RECHAZADA
+}
+
+enum TipoHistorial {
+  CREACION
+  CAMBIO_ESTATUS
+  AVANCE_BLOQUE
+  RETROCESO_BLOQUE
+  CARGA_DOCUMENTO
+  CAMBIO_CHECKLIST
+  SOLICITUD_GENERADA
+  SOLICITUD_RESPONDIDA
+  PAGO_REGISTRADO
+  COMENTARIO
+  MORA_ACTIVADA
+  AJUSTE_MORATORIO
+  OTRO
+}
+
+enum TipoNotificacion {
+  SOLICITUD_RECIBIDA
+  SOLICITUD_COMPLETADA
+  DOCUMENTO_CARGADO
+  BLOQUE_AVANZADO
+  SLA_PROXIMO
+  SLA_VENCIDO
+  PAGO_REGISTRADO
+  MORA_ACTIVADA
+  COMENTARIO
+}
+
+// ─── MODELOS PRINCIPALES ────────────────────────────────────────────────────
+
+model Usuario {
+  id            String    @id @default(cuid())
+  nombre        String
+  email         String    @unique
+  password      String
+  rol           Rol       @default(OPERADOR)
+  activo        Boolean   @default(true)
+  creadoEn      DateTime  @default(now())
+
+  operacionesAsignadas Operacion[]          @relation("EjecutivoOperacion")
+  operacionesCreadas   Operacion[]          @relation("CreadoPorOperacion")
+  bloquesResponsable   BloqueOperacion[]    @relation("ResponsableBloque")
+  checklistItems       ChecklistItem[]      @relation("CompletadoPorChecklist")
+  documentosCargados   Documento[]          @relation("CargadoPorDocumento")
+  documentosValidados  Documento[]          @relation("ValidadoPorDocumento")
+  solicitudesGeneradas Solicitud[]          @relation("GeneradaPorSolicitud")
+  solicitudesDirigidas Solicitud[]          @relation("DirigidaASolicitud")
+  comentarios          ComentarioSolicitud[]
+  historial            HistorialMovimiento[] @relation("UsuarioHistorial")
+  notificaciones       Notificacion[]
+  pagosRegistrados     PagoMensual[]        @relation("RegistradoPorPago")
+}
+
+model Operacion {
+  id                String         @id @default(cuid())
+  folio             String         @unique
+  nombre            String
+  producto          Producto
+  status            StatusOp       @default(PROSPECTO)
+  bloqueActual      Int            @default(1)
+
+  // Acreditado (datos inline para histórico)
+  acreditadoNombre  String
+  acreditadoRfc     String?
+  acreditadoTipo    TipoAcreditado @default(PF)
+  acreditadoTelefono String?
+  acreditadoEmail   String?
+  acreditadoDireccion String?
+
+  // Relaciones de usuarios
+  ejecutivoId       String
+  ejecutivo         Usuario        @relation("EjecutivoOperacion", fields: [ejecutivoId], references: [id])
+  creadoPorId       String
+  creadoPor         Usuario        @relation("CreadoPorOperacion", fields: [creadoPorId], references: [id])
+
+  // Parámetros financieros (todos los productos)
+  monto             Float
+  tasaAnual         Float
+  plazoMeses        Int
+  fechaPrimerPago   DateTime
+  comisionApertura  Float          @default(0.03)
+  costosFijos       Float          @default(0)
+
+  // Solo STPB
+  spreadSofom       Float?
+  adminFideicomiso  Float?
+  comisionCobranza  Float?
+  sofomComoAcreditante Boolean     @default(false)
+  sofomMonto        Float?
+  sofomTasaNeta     Float?
+
+  // Extras
+  notas             String?
+  folioPld          String?
+  valorInmueble     Float?
+  ltv               Float?
+
+  creadoEn          DateTime       @default(now())
+  actualizadoEn     DateTime       @updatedAt
+
+  // Relaciones
+  inversionistas    Inversionista[]
+  bloques           BloqueOperacion[]
+  pagos             PagoMensual[]
+  documentos        Documento[]
+  solicitudes       Solicitud[]
+  historial         HistorialMovimiento[]
+  notificaciones    Notificacion[]
+}
+
+model Inversionista {
+  id              String    @id @default(cuid())
+  operacionId     String
+  operacion       Operacion @relation(fields: [operacionId], references: [id])
+  nombre          String
+  monto           Float
+  porcentaje      Float
+  tasaNeta        Float
+  orden           Int       @default(0)
+  esSofom         Boolean   @default(false)
+  creadoEn        DateTime  @default(now())
+}
+
+model BloqueOperacion {
+  id              String        @id @default(cuid())
+  operacionId     String
+  operacion       Operacion     @relation(fields: [operacionId], references: [id])
+  numeroBloque    Int           // 1-5
+  status          StatusBloque  @default(PENDIENTE)
+  resultado       StatusBloque?
+  condiciones     String?
+  motivoRechazo   String?
+  fechaInicio     DateTime?
+  fechaCierre     DateTime?
+  slaHoras        Int?          // 72 para bloques 1 y 3
+  responsableId   String?
+  responsable     Usuario?      @relation("ResponsableBloque", fields: [responsableId], references: [id])
+  creadoEn        DateTime      @default(now())
+  actualizadoEn   DateTime      @updatedAt
+
+  checklistItems  ChecklistItem[]
+
+  @@unique([operacionId, numeroBloque])
+}
+
+model ChecklistItem {
+  id              String          @id @default(cuid())
+  bloqueId        String
+  bloque          BloqueOperacion @relation(fields: [bloqueId], references: [id])
+  descripcion     String
+  categoria       String?         // "RIESGOS" | "COMERCIAL" | "JURIDICO" etc.
+  completado      Boolean         @default(false)
+  completadoPorId String?
+  completadoPor   Usuario?        @relation("CompletadoPorChecklist", fields: [completadoPorId], references: [id])
+  fechaCompletado DateTime?
+  nota            String?
+  orden           Int             @default(0)
+  creadoEn        DateTime        @default(now())
+}
+
+model Documento {
+  id              String          @id @default(cuid())
+  operacionId     String
+  operacion       Operacion       @relation(fields: [operacionId], references: [id])
+  tipo            TipoDocumento
+  nombre          String
+  status          StatusDocumento @default(PENDIENTE)
+  archivoUrl      String?
+  tamano          Int?
+  seccion         String          // "acreditado" | "inversionista:{id}" | "legal"
+  bloqueNumero    Int?
+
+  cargadoPorId    String?
+  cargadoPor      Usuario?        @relation("CargadoPorDocumento", fields: [cargadoPorId], references: [id])
+  fechaCarga      DateTime?
+  validadoPorId   String?
+  validadoPor     Usuario?        @relation("ValidadoPorDocumento", fields: [validadoPorId], references: [id])
+  fechaValidacion DateTime?
+  nota            String?
+
+  creadoEn        DateTime        @default(now())
+  actualizadoEn   DateTime        @updatedAt
+}
+
+model Solicitud {
+  id              String          @id @default(cuid())
+  folio           String          @unique
+  operacionId     String
+  operacion       Operacion       @relation(fields: [operacionId], references: [id])
+  tipo            TipoSolicitud
+  descripcion     String?
+  status          StatusSolicitud @default(PENDIENTE)
+  fechaLimite     DateTime?
+  fechaCompletada DateTime?
+  bloqueNumero    Int?
+
+  generadaPorId   String
+  generadaPor     Usuario         @relation("GeneradaPorSolicitud", fields: [generadaPorId], references: [id])
+  dirigidaAId     String
+  dirigidaA       Usuario         @relation("DirigidaASolicitud", fields: [dirigidaAId], references: [id])
+
+  comentarios     ComentarioSolicitud[]
+  creadoEn        DateTime        @default(now())
+  actualizadoEn   DateTime        @updatedAt
+}
+
+model ComentarioSolicitud {
+  id          String    @id @default(cuid())
+  solicitudId String
+  solicitud   Solicitud @relation(fields: [solicitudId], references: [id])
+  usuarioId   String
+  usuario     Usuario   @relation(fields: [usuarioId], references: [id])
+  texto       String
+  archivoUrl  String?
+  creadoEn    DateTime  @default(now())
+}
+
+model HistorialMovimiento {
+  id              String          @id @default(cuid())
+  operacionId     String
+  operacion       Operacion       @relation(fields: [operacionId], references: [id])
+  usuarioId       String
+  usuario         Usuario         @relation("UsuarioHistorial", fields: [usuarioId], references: [id])
+  tipo            TipoHistorial
+  descripcion     String
+  detalle         String?
+  creadoEn        DateTime        @default(now())
+  // Inmutable: no updatedAt intencional
+}
+
+model Notificacion {
+  id              String           @id @default(cuid())
+  usuarioId       String
+  usuario         Usuario          @relation(fields: [usuarioId], references: [id])
+  tipo            TipoNotificacion
+  titulo          String
+  descripcion     String
+  operacionId     String?
+  operacion       Operacion?       @relation(fields: [operacionId], references: [id])
+  solicitudId     String?
+  leida           Boolean          @default(false)
+  creadoEn        DateTime         @default(now())
+}
+
+model PagoMensual {
+  id                  String      @id @default(cuid())
+  operacionId         String
+  operacion           Operacion   @relation(fields: [operacionId], references: [id])
+  numeroPago          Int
+  fechaVencimiento    DateTime
+  fechaPagoReal       DateTime?
+  capitalTotal        Float
+  interesTotal        Float
+  pagoTotal           Float
+  saldo               Float
+
+  status              StatusPago  @default(PENDIENTE)
+  montoPagado         Float?
+  interesOrdinarioPagado Float?
+  intereseMoratorio   Float?
+  diasMora            Int?
+
+  comprobanteUrl      String?
+  registradoPorId     String?
+  registradoPor       Usuario?    @relation("RegistradoPorPago", fields: [registradoPorId], references: [id])
+  notas               String?
+
+  motivoCondonacion   String?
+  condonadoPor        String?
+  montoOriginal       Float?
+
+  creadoEn            DateTime    @default(now())
+  actualizadoEn       DateTime    @updatedAt
+}
