@@ -872,17 +872,19 @@ export default function DetalleOperacion() {
               action: async () => {
                 const r = await operacionesApi.corrida(id!, 'acreditado');
                 const { amort, nombre } = r.data;
+                const comPorc = op.comisionApertura ?? 0;
                 imprimirCorrida({
                   tipo: 'acreditado',
-                  nombre: nombre || op.acreditadoNombre,
-                  monto: op.monto,
-                  tasaAnual: op.tasaAnual,
-                  plazoMeses: op.plazoMeses,
-                  pmt: amort.pmt,
-                  comisionApertura: op.monto * op.comisionApertura,
-                  totalIntereses: amort.totalIntereses,
-                  totalPagado: amort.totalPagado,
-                  filas: amort.filas,
+                  nombre: nombre || op.acreditadoNombre || '—',
+                  monto: op.monto ?? 0,
+                  tasaAnual: op.tasaAnual ?? 0,
+                  plazoMeses: op.plazoMeses ?? 0,
+                  pmt: amort.pmt ?? 0,
+                  comisionApertura: (op.monto ?? 0) * comPorc,
+                  comisionAperturaPorc: comPorc,
+                  totalIntereses: amort.totalIntereses ?? 0,
+                  totalPagado: amort.totalPagado ?? 0,
+                  filas: amort.filas ?? [],
                 });
               },
             },
@@ -897,15 +899,16 @@ export default function DetalleOperacion() {
                 const { amort, nombre } = r.data;
                 imprimirCorrida({
                   tipo: 'inversionista',
-                  nombre,
-                  monto: inv.monto,
-                  tasaAnual: inv.tasaNeta,
-                  plazoMeses: op.plazoMeses,
-                  pmt: amort.pmt,
+                  nombre: nombre || inv.nombre || '—',
+                  monto: inv.monto ?? 0,
+                  tasaAnual: inv.tasaNeta ?? 0,
+                  plazoMeses: op.plazoMeses ?? 0,
+                  pmt: amort.pmt ?? 0,
                   comisionApertura: 0,
-                  totalIntereses: amort.totalIntereses,
-                  totalPagado: amort.totalPagado,
-                  filas: amort.filas,
+                  comisionAperturaPorc: 0,
+                  totalIntereses: amort.totalIntereses ?? 0,
+                  totalPagado: amort.totalPagado ?? 0,
+                  filas: amort.filas ?? [],
                 });
               },
             })) ),
