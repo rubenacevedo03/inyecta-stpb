@@ -328,8 +328,8 @@ export default function DetalleOperacion() {
               </span>
             </div>
             <p className="text-gray-500 text-sm mt-0.5">
-              {op.acreditadoNombre}
-              {op.acreditadoRfc && <span className="ml-2 text-gray-400">· {op.acreditadoRfc}</span>}
+              {op.acreditado?.nombre}
+              {op.acreditado?.rfc && <span className="ml-2 text-gray-400">· {op.acreditado.rfc}</span>}
             </p>
           </div>
         </div>
@@ -659,12 +659,12 @@ export default function DetalleOperacion() {
             </h3>
             <dl className="space-y-3 text-sm">
               {[
-                ['Nombre', op.acreditadoNombre],
-                ['RFC', op.acreditadoRfc || '—'],
-                ['Tipo', op.acreditadoTipo === 'PF' ? 'Persona Física' : 'Persona Moral'],
-                ['Teléfono', op.acreditadoTelefono || '—'],
-                ['Correo', op.acreditadoEmail || '—'],
-                ['Dirección', op.acreditadoDireccion || '—'],
+                ['Nombre', op.acreditado?.nombre],
+                ['RFC', op.acreditado?.rfc || '—'],
+                ['Tipo', op.acreditado?.tipoPersona === 'PF' ? 'Persona Física' : 'Persona Moral'],
+                ['Teléfono', op.acreditado?.telefono || '—'],
+                ['Correo', op.acreditado?.email || '—'],
+                ['Dirección', op.acreditado?.direccion || '—'],
               ].map(([label, value]) => (
                 <div key={label} className="flex justify-between gap-4">
                   <dt className="text-gray-500 flex-shrink-0">{label}</dt>
@@ -704,29 +704,29 @@ export default function DetalleOperacion() {
             </dl>
           </div>
 
-          {/* Inversionistas */}
+          {/* Participaciones / Inversionistas */}
           <div className="bg-white rounded-xl border shadow-sm p-6">
-            <h3 className="font-semibold mb-4">Inversionistas</h3>
-            {op.inversionistas?.length > 0 ? (
+            <h3 className="font-semibold mb-4">Participaciones</h3>
+            {op.participaciones?.length > 0 ? (
               <div className="space-y-3">
-                {op.inversionistas.map((inv: any) => (
-                  <div key={inv.id} className={`p-4 rounded-lg border ${inv.esSofom ? 'bg-[#c9a227]/10 border-[#c9a227]/30' : 'bg-gray-50'}`}>
+                {op.participaciones.map((part: any) => (
+                  <div key={part.id} className={`p-4 rounded-lg border ${part.esSofom ? 'bg-[#c9a227]/10 border-[#c9a227]/30' : 'bg-gray-50'}`}>
                     <div className="flex items-center justify-between">
                       <p className="font-medium text-sm">
-                        {inv.nombre}
-                        {inv.esSofom && <span className="ml-2 text-xs text-[#c9a227] font-semibold">SOFOM</span>}
+                        {part.inversionista?.nombre}
+                        {part.esSofom && <span className="ml-2 text-xs text-[#c9a227] font-semibold">SOFOM</span>}
                       </p>
-                      <span className="text-sm font-semibold">{fmtPct(inv.porcentaje)}</span>
+                      <span className="text-sm font-semibold">{fmtPct(Number(part.porcentajeParticipacion))}</span>
                     </div>
                     <div className="flex justify-between text-xs text-gray-500 mt-1">
-                      <span>{fmtMXN(inv.monto)}</span>
-                      <span>Tasa neta: {fmtPct(inv.tasaNeta)}</span>
+                      <span>{fmtMXN(Number(part.montoAportado))}</span>
+                      <span>Tasa neta: {fmtPct(Number(part.tasaNeta))}</span>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-gray-400 text-sm">Sin inversionistas asignados</p>
+              <p className="text-gray-400 text-sm">Sin participaciones asignadas</p>
             )}
           </div>
 
@@ -875,7 +875,7 @@ export default function DetalleOperacion() {
                 const comPorc = op.comisionApertura ?? 0;
                 imprimirCorrida({
                   tipo: 'acreditado',
-                  nombre: nombre || op.acreditadoNombre || '—',
+                  nombre: nombre || op.acreditado?.nombre || '—',
                   monto: op.monto ?? 0,
                   tasaAnual: op.tasaAnual ?? 0,
                   plazoMeses: op.plazoMeses ?? 0,
@@ -888,20 +888,20 @@ export default function DetalleOperacion() {
                 });
               },
             },
-            ...( (op.inversionistas || []).map((inv: any) => ({
-              title: `Corrida — ${inv.nombre}`,
-              desc: `Corrida de flujos para el inversionista. Monto: ${fmtMXN(inv.monto)} | Tasa neta: ${fmtPct(inv.tasaNeta)}`,
+            ...( (op.participaciones || []).map((part: any) => ({
+              title: `Corrida — ${part.inversionista?.nombre}`,
+              desc: `Corrida de flujos para el inversionista. Monto: ${fmtMXN(Number(part.montoAportado))} | Tasa neta: ${fmtPct(Number(part.tasaNeta))}`,
               icon: '💰',
               color: 'border-[#c9a227]/30 bg-[#c9a227]/5',
               btnColor: 'bg-[#c9a227] hover:bg-yellow-500 text-[#1a1a1a]',
               action: async () => {
-                const r = await operacionesApi.corrida(id!, 'inversionista', inv.id);
+                const r = await operacionesApi.corrida(id!, 'inversionista', part.inversionistaId);
                 const { amort, nombre } = r.data;
                 imprimirCorrida({
                   tipo: 'inversionista',
-                  nombre: nombre || inv.nombre || '—',
-                  monto: inv.monto ?? 0,
-                  tasaAnual: inv.tasaNeta ?? 0,
+                  nombre: nombre || part.inversionista?.nombre || '—',
+                  monto: Number(part.montoAportado) ?? 0,
+                  tasaAnual: Number(part.tasaNeta) ?? 0,
                   plazoMeses: op.plazoMeses ?? 0,
                   pmt: amort.pmt ?? 0,
                   comisionApertura: 0,
@@ -925,9 +925,9 @@ export default function DetalleOperacion() {
               </button>
             </div>
           ))}
-          {op.inversionistas?.length === 0 && (
+          {(!op.participaciones || op.participaciones.length === 0) && (
             <div className="md:col-span-2 bg-gray-50 rounded-xl border border-dashed p-6 text-center">
-              <p className="text-gray-400 text-sm">Sin inversionistas asignados — agrega inversionistas para generar corridas</p>
+              <p className="text-gray-400 text-sm">Sin participaciones asignadas — agrega inversionistas para generar corridas</p>
             </div>
           )}
         </div>
@@ -973,7 +973,7 @@ export default function DetalleOperacion() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
             <div className="p-6 border-b">
               <h3 className="font-semibold text-lg">Nueva Solicitud</h3>
-              <p className="text-sm text-gray-500 mt-0.5">{op.folio} — {op.acreditadoNombre}</p>
+              <p className="text-sm text-gray-500 mt-0.5">{op.folio} — {op.acreditado?.nombre}</p>
             </div>
             <div className="p-6 space-y-4">
               <div>

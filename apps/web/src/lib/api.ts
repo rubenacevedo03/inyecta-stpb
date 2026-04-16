@@ -58,4 +58,25 @@ export const usuariosApi = {
   resetPassword: (id: string, password: string) => api.patch(`/usuarios/${id}/reset-password`, { password }),
 };
 
+export const acreditadosApi = {
+  list: (q?: string) => api.get('/acreditados', { params: q ? { q } : {} }),
+  get: (id: string) => api.get(`/acreditados/${id}`),
+  create: (data: any) => api.post('/acreditados', data),
+  update: (id: string, data: any) => api.patch(`/acreditados/${id}`, data),
+};
+
+export const inversionistasApi = {
+  list: (q?: string) => api.get('/inversionistas', { params: q ? { q } : {} }),
+  get: (id: string) => api.get(`/inversionistas/${id}`),
+  create: (data: any) => api.post('/inversionistas', data),
+  update: (id: string, data: any) => api.patch(`/inversionistas/${id}`, data),
+};
+
+export const participacionesApi = {
+  byOperacion: (operacionId: string) => api.get(`/participaciones/operacion/${operacionId}`),
+  create: (data: any) => api.post('/participaciones', data),
+  update: (id: string, data: any) => api.patch(`/participaciones/${id}`, data),
+  remove: (id: string) => api.delete(`/participaciones/${id}`),
+};
+
 export default api;

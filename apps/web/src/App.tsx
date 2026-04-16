@@ -9,6 +9,8 @@ import NuevaOperacion from './pages/NuevaOperacion';
 import DetalleOperacion from './pages/DetalleOperacion';
 import Cartera from './pages/Cartera';
 import Usuarios from './pages/Usuarios';
+import Acreditados from './pages/Acreditados';
+import Inversionistas from './pages/Inversionistas';
 
 function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
   const { isAuthenticated, user } = useAuth();
@@ -29,6 +31,8 @@ export default function App() {
         <Route path="operaciones/:id" element={<DetalleOperacion />} />
         <Route path="operaciones/:id/bloque/:num" element={<DetalleOperacion />} />
         <Route path="cartera" element={<Cartera />} />
+        <Route path="acreditados" element={<Acreditados />} />
+        <Route path="inversionistas" element={<Inversionistas />} />
         <Route path="usuarios" element={
           <ProtectedRoute roles={['ADMIN']}><Usuarios /></ProtectedRoute>
         } />
