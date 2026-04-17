@@ -1,7 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { PrismaClient } from '@prisma/client';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-cambiar-en-produccion';
+const prisma = new PrismaClient();
 
 export interface JwtPayload {
   id: string;
@@ -27,8 +29,20 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   try {
     const token = header.split(' ')[1];
     const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
-    req.user = decoded;
-    next();
+
+    // Verificar que el usuario aún existe en DB (protege contra tokens de sesiones antiguas)
+    prisma.usuario.findUnique({ where: { id: decoded.id }, select: { id: true, activo: true } })
+      .then((usuario) => {
+        if (!usuario || !usuario.activo) {
+          res.status(401).json({ error: 'Sesión expirada — vuelve a iniciar sesión' });
+          return;
+        }
+        req.user = decoded;
+        next();
+      })
+      .catch(() => {
+        res.status(401).json({ error: 'Sesión expirada — vuelve a iniciar sesión' });
+      });
   } catch {
     res.status(401).json({ error: 'Token inválido o expirado' });
   }
