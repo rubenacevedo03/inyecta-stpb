@@ -1,17 +1,26 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Calculator, FileText, TrendingUp,
-  Users, Bell, LogOut, Menu, ChevronRight, UserCheck, Briefcase
+  Users, Bell, LogOut, Menu, UserCheck, Briefcase
 } from 'lucide-react';
 import NotificationPanel from './NotificationPanel';
+import { notificacionesApi } from '../lib/api';
 
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+
+  const { data: notifs = [] } = useQuery({
+    queryKey: ['notificaciones'],
+    queryFn:  () => notificacionesApi.list().then(r => r.data),
+    refetchInterval: 30_000,
+  });
+  const noLeidas = notifs.filter((n: any) => !n.leida).length;
 
   const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['ADMIN', 'OPERADOR'] },
@@ -98,7 +107,11 @@ export default function Layout() {
               className="relative p-2 text-gray-500 hover:text-gray-800 rounded-lg hover:bg-gray-100"
             >
               <Bell size={18} />
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] rounded-full flex items-center justify-center font-bold">3</span>
+              {noLeidas > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-0.5 bg-red-500 text-white text-[9px] rounded-full flex items-center justify-center font-bold">
+                  {noLeidas > 99 ? '99+' : noLeidas}
+                </span>
+              )}
             </button>
           </div>
         </header>

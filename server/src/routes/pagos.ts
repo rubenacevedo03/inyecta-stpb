@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware } from '../middleware/auth';
+import { notificar } from '../lib/notificar';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -70,6 +71,14 @@ router.patch('/:id/registrar', authMiddleware, async (req: any, res) => {
           detalle:     status,
         },
       });
+      // Notificación asíncrona (no bloquea respuesta)
+      notificar({
+        tipo:        'PAGO_REGISTRADO',
+        titulo:      `Pago #${pago.numeroPago} registrado`,
+        descripcion: `$${monto.toLocaleString('es-MX')} — ${status}`,
+        operacionId: op.id,
+        excluir:     req.user?.id ? [req.user.id] : [],
+      }).catch(console.error);
     }
 
     res.json(updated);

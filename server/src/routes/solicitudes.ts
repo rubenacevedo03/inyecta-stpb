@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware } from '../middleware/auth';
+import { notificar } from '../lib/notificar';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -37,17 +38,27 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
         fechaLimite: fechaLimite ? new Date(fechaLimite) : null,
       },
     });
-    // Create notification
-    await prisma.notificacion.create({
-      data: {
-        usuarioId: dirigidaAId,
-        tipo: 'SOLICITUD_RECIBIDA',
-        titulo: `Nueva solicitud: ${folio}`,
-        descripcion: `${tipo} — Operación vinculada`,
-        operacionId,
-        solicitudId: sol.id,
-      },
-    });
+    // Notificar al destinatario directo + ADMIN
+    if (dirigidaAId) {
+      await prisma.notificacion.create({
+        data: {
+          usuarioId:   dirigidaAId,
+          tipo:        'SOLICITUD_RECIBIDA',
+          titulo:      `Nueva solicitud: ${folio}`,
+          descripcion: `${tipo}`,
+          operacionId,
+          solicitudId: sol.id,
+        },
+      });
+    }
+    notificar({
+      tipo:        'SOLICITUD_RECIBIDA',
+      titulo:      `Nueva solicitud: ${folio}`,
+      descripcion: tipo,
+      operacionId,
+      solicitudId: sol.id,
+      excluir:     [req.user!.id, ...(dirigidaAId ? [dirigidaAId] : [])],
+    }).catch(console.error);
     // History
     await prisma.historialMovimiento.create({
       data: {
@@ -68,6 +79,17 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
       where: { id: req.params.id as string },
       data: { status, fechaCompletada: fechaCompletada ? new Date(fechaCompletada) : undefined },
     });
+
+    if (status === 'COMPLETADA') {
+      notificar({
+        tipo:        'SOLICITUD_COMPLETADA',
+        titulo:      `Solicitud completada: ${sol.folio}`,
+        descripcion: `${sol.tipo}`,
+        operacionId: sol.operacionId ?? undefined,
+        solicitudId: sol.id,
+        excluir:     req.user ? [(req.user as any).id] : [],
+      }).catch(console.error);
+    }
     res.json(sol);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });

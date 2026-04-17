@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware } from '../middleware/auth';
+import { notificar } from '../lib/notificar';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -108,6 +109,14 @@ router.post('/:opId/avanzar', authMiddleware, async (req: Request, res: Response
         descripcion: `Avance de Bloque ${bloqueActual} → Bloque ${nextBloque}`,
       },
     });
+
+    notificar({
+      tipo:        'BLOQUE_AVANZADO',
+      titulo:      `Bloque ${bloqueActual} completado`,
+      descripcion: `La operación avanzó al Bloque ${nextBloque}`,
+      operacionId: op.id,
+      excluir:     [req.user!.id],
+    }).catch(console.error);
 
     res.json(op);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
