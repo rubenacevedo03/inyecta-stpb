@@ -161,7 +161,7 @@ enum TipoNotificacion {
   COMENTARIO
 }
 
-// ─── MODELOS PRINCIPALES ────────────────────────────────────────────────────
+// ─── MODELOS PRINCIPALES ─────────────────────────────────────────────────────
 
 model Usuario {
   id            String    @id @default(cuid())
@@ -172,108 +172,154 @@ model Usuario {
   activo        Boolean   @default(true)
   creadoEn      DateTime  @default(now())
 
-  operacionesAsignadas Operacion[]          @relation("EjecutivoOperacion")
-  operacionesCreadas   Operacion[]          @relation("CreadoPorOperacion")
-  bloquesResponsable   BloqueOperacion[]    @relation("ResponsableBloque")
-  checklistItems       ChecklistItem[]      @relation("CompletadoPorChecklist")
-  documentosCargados   Documento[]          @relation("CargadoPorDocumento")
-  documentosValidados  Documento[]          @relation("ValidadoPorDocumento")
-  solicitudesGeneradas Solicitud[]          @relation("GeneradaPorSolicitud")
-  solicitudesDirigidas Solicitud[]          @relation("DirigidaASolicitud")
+  operacionesAsignadas Operacion[]           @relation("EjecutivoOperacion")
+  operacionesCreadas   Operacion[]           @relation("CreadoPorOperacion")
+  bloquesResponsable   BloqueOperacion[]     @relation("ResponsableBloque")
+  checklistItems       ChecklistItem[]       @relation("CompletadoPorChecklist")
+  documentosCargados   Documento[]           @relation("CargadoPorDocumento")
+  documentosValidados  Documento[]           @relation("ValidadoPorDocumento")
+  solicitudesGeneradas Solicitud[]           @relation("GeneradaPorSolicitud")
+  solicitudesDirigidas Solicitud[]           @relation("DirigidaASolicitud")
   comentarios          ComentarioSolicitud[]
   historial            HistorialMovimiento[] @relation("UsuarioHistorial")
   notificaciones       Notificacion[]
-  pagosRegistrados     PagoMensual[]        @relation("RegistradoPorPago")
+  pagosRegistrados     PagoMensual[]         @relation("RegistradoPorPago")
+  bitacora             Bitacora[]
 }
 
-model Operacion {
-  id                String         @id @default(cuid())
-  folio             String         @unique
-  nombre            String
-  producto          Producto
-  status            StatusOp       @default(PROSPECTO)
-  bloqueActual      Int            @default(1)
+// ─── ACREDITADO (catálogo separado de Operacion) ──────────────────────────────
 
-  // Acreditado (datos inline para histórico)
-  acreditadoNombre  String
-  acreditadoRfc     String?
-  acreditadoTipo    TipoAcreditado @default(PF)
-  acreditadoTelefono String?
-  acreditadoEmail   String?
-  acreditadoDireccion String?
+model Acreditado {
+  id          String         @id @default(cuid())
+  nombre      String
+  rfc         String?
+  telefono    String?
+  email       String?
+  direccion   String?
+  tipoPersona TipoAcreditado @default(PF)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
-  // Relaciones de usuarios
-  ejecutivoId       String
-  ejecutivo         Usuario        @relation("EjecutivoOperacion", fields: [ejecutivoId], references: [id])
-  creadoPorId       String
-  creadoPor         Usuario        @relation("CreadoPorOperacion", fields: [creadoPorId], references: [id])
-
-  // Parámetros financieros (todos los productos)
-  monto             Float
-  tasaAnual         Float
-  plazoMeses        Int
-  fechaPrimerPago   DateTime
-  comisionApertura  Float          @default(0.03)
-  costosFijos       Float          @default(0)
-
-  // Solo STPB
-  spreadSofom       Float?
-  adminFideicomiso  Float?
-  comisionCobranza  Float?
-  sofomComoAcreditante Boolean     @default(false)
-  sofomMonto        Float?
-  sofomTasaNeta     Float?
-
-  // Extras
-  notas             String?
-  folioPld          String?
-  valorInmueble     Float?
-  ltv               Float?
-
-  creadoEn          DateTime       @default(now())
-  actualizadoEn     DateTime       @updatedAt
-
-  // Relaciones
-  inversionistas    Inversionista[]
-  bloques           BloqueOperacion[]
-  pagos             PagoMensual[]
-  documentos        Documento[]
-  solicitudes       Solicitud[]
-  historial         HistorialMovimiento[]
-  notificaciones    Notificacion[]
+  operaciones Operacion[]
 }
+
+// ─── INVERSIONISTA (catálogo global — desacoplado de Operacion) ───────────────
 
 model Inversionista {
-  id              String    @id @default(cuid())
-  operacionId     String
-  operacion       Operacion @relation(fields: [operacionId], references: [id])
-  nombre          String
-  monto           Float
-  porcentaje      Float
-  tasaNeta        Float
-  orden           Int       @default(0)
-  esSofom         Boolean   @default(false)
-  creadoEn        DateTime  @default(now())
+  id           String   @id @default(cuid())
+  nombre       String
+  rfc          String?
+  banco        String?
+  cuentaClabe  String?  @unique
+  email        String?
+  telefono     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  participaciones Participacion[]
 }
 
-model BloqueOperacion {
-  id              String        @id @default(cuid())
-  operacionId     String
-  operacion       Operacion     @relation(fields: [operacionId], references: [id])
-  numeroBloque    Int           // 1-5
-  status          StatusBloque  @default(PENDIENTE)
-  resultado       StatusBloque?
-  condiciones     String?
-  motivoRechazo   String?
-  fechaInicio     DateTime?
-  fechaCierre     DateTime?
-  slaHoras        Int?          // 72 para bloques 1 y 3
-  responsableId   String?
-  responsable     Usuario?      @relation("ResponsableBloque", fields: [responsableId], references: [id])
-  creadoEn        DateTime      @default(now())
-  actualizadoEn   DateTime      @updatedAt
+// ─── PARTICIPACION (inversionista × operacion) ────────────────────────────────
 
-  checklistItems  ChecklistItem[]
+model Participacion {
+  id                      String        @id @default(cuid())
+  operacionId             String
+  inversionistaId         String
+  porcentajeParticipacion Decimal       @db.Decimal(6,4)
+  montoAportado           Decimal       @db.Decimal(14,2)
+  tasaNeta                Decimal       @db.Decimal(6,4)
+  esSofom                 Boolean       @default(false)
+  orden                   Int           @default(0)
+  fechaAlta               DateTime      @default(now())
+
+  operacion               Operacion     @relation(fields: [operacionId],     references: [id])
+  inversionista           Inversionista @relation(fields: [inversionistaId], references: [id])
+
+  @@unique([operacionId, inversionistaId])
+}
+
+// ─── OPERACION ────────────────────────────────────────────────────────────────
+
+model Operacion {
+  id            String    @id @default(cuid())
+  folio         String    @unique
+  nombre        String
+  producto      Producto
+  status        StatusOp  @default(PROSPECTO)
+  bloqueActual  Int       @default(1)
+
+  // Acreditado (FK al catálogo)
+  acreditadoId  String
+  acreditado    Acreditado @relation(fields: [acreditadoId], references: [id])
+
+  // Usuarios
+  ejecutivoId   String
+  ejecutivo     Usuario   @relation("EjecutivoOperacion", fields: [ejecutivoId], references: [id])
+  creadoPorId   String
+  creadoPor     Usuario   @relation("CreadoPorOperacion", fields: [creadoPorId], references: [id])
+
+  // Parámetros financieros — Decimal
+  monto             Decimal  @db.Decimal(14,2)
+  tasaAnual         Decimal  @db.Decimal(6,4)
+  plazoMeses        Int
+  fechaPrimerPago   DateTime
+  comisionApertura  Decimal  @default(0.0300) @db.Decimal(6,4)
+  costosFijos       Decimal  @default(0)      @db.Decimal(14,2)
+
+  // IVA / mora / gracia — required manual por operación
+  aplicaIva            Boolean @default(true)
+  tasaIva              Decimal @default(0.1600) @db.Decimal(5,4)
+  tasaMoratoriaAnual   Decimal @db.Decimal(6,4)        // required, sin default
+  diasGracia           Int     @default(3)
+  capitalizaMoratorios Boolean @default(false)
+
+  // Solo STPB
+  spreadSofom          Decimal? @db.Decimal(6,4)
+  adminFideicomiso     Decimal? @db.Decimal(6,4)
+  comisionCobranza     Decimal? @db.Decimal(6,4)
+  sofomComoAcreditante Boolean  @default(false)
+  sofomMonto           Decimal? @db.Decimal(14,2)
+  sofomTasaNeta        Decimal? @db.Decimal(6,4)
+
+  // Extras
+  notas         String?
+  folioPld      String?
+  valorInmueble Decimal? @db.Decimal(14,2)
+  ltv           Decimal? @db.Decimal(6,4)
+
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  // Relaciones
+  participaciones Participacion[]
+  bloques         BloqueOperacion[]
+  pagos           PagoMensual[]
+  documentos      Documento[]
+  solicitudes     Solicitud[]
+  historial       HistorialMovimiento[]
+  notificaciones  Notificacion[]
+}
+
+// ─── BLOQUE / CHECKLIST ───────────────────────────────────────────────────────
+
+model BloqueOperacion {
+  id            String        @id @default(cuid())
+  operacionId   String
+  operacion     Operacion     @relation(fields: [operacionId], references: [id])
+  numeroBloque  Int
+  status        StatusBloque  @default(PENDIENTE)
+  resultado     StatusBloque?
+  condiciones   String?
+  motivoRechazo String?
+  fechaInicio   DateTime?
+  fechaCierre   DateTime?
+  slaHoras      Int?
+  responsableId String?
+  responsable   Usuario?      @relation("ResponsableBloque", fields: [responsableId], references: [id])
+  creadoEn      DateTime      @default(now())
+  actualizadoEn DateTime      @updatedAt
+
+  checklistItems ChecklistItem[]
 
   @@unique([operacionId, numeroBloque])
 }
@@ -283,7 +329,7 @@ model ChecklistItem {
   bloqueId        String
   bloque          BloqueOperacion @relation(fields: [bloqueId], references: [id])
   descripcion     String
-  categoria       String?         // "RIESGOS" | "COMERCIAL" | "JURIDICO" etc.
+  categoria       String?
   completado      Boolean         @default(false)
   completadoPorId String?
   completadoPor   Usuario?        @relation("CompletadoPorChecklist", fields: [completadoPorId], references: [id])
@@ -292,6 +338,8 @@ model ChecklistItem {
   orden           Int             @default(0)
   creadoEn        DateTime        @default(now())
 }
+
+// ─── DOCUMENTOS ───────────────────────────────────────────────────────────────
 
 model Documento {
   id              String          @id @default(cuid())
@@ -302,7 +350,7 @@ model Documento {
   status          StatusDocumento @default(PENDIENTE)
   archivoUrl      String?
   tamano          Int?
-  seccion         String          // "acreditado" | "inversionista:{id}" | "legal"
+  seccion         String
   bloqueNumero    Int?
 
   cargadoPorId    String?
@@ -316,6 +364,8 @@ model Documento {
   creadoEn        DateTime        @default(now())
   actualizadoEn   DateTime        @updatedAt
 }
+
+// ─── SOLICITUDES ──────────────────────────────────────────────────────────────
 
 model Solicitud {
   id              String          @id @default(cuid())
@@ -350,60 +400,87 @@ model ComentarioSolicitud {
   creadoEn    DateTime  @default(now())
 }
 
+// ─── HISTORIAL (por operación) ────────────────────────────────────────────────
+
 model HistorialMovimiento {
-  id              String          @id @default(cuid())
-  operacionId     String
-  operacion       Operacion       @relation(fields: [operacionId], references: [id])
-  usuarioId       String
-  usuario         Usuario         @relation("UsuarioHistorial", fields: [usuarioId], references: [id])
-  tipo            TipoHistorial
-  descripcion     String
-  detalle         String?
-  creadoEn        DateTime        @default(now())
-  // Inmutable: no updatedAt intencional
+  id          String        @id @default(cuid())
+  operacionId String
+  operacion   Operacion     @relation(fields: [operacionId], references: [id])
+  usuarioId   String
+  usuario     Usuario       @relation("UsuarioHistorial", fields: [usuarioId], references: [id])
+  tipo        TipoHistorial
+  descripcion String
+  detalle     String?
+  creadoEn    DateTime      @default(now())
 }
+
+// ─── NOTIFICACIONES ───────────────────────────────────────────────────────────
 
 model Notificacion {
-  id              String           @id @default(cuid())
-  usuarioId       String
-  usuario         Usuario          @relation(fields: [usuarioId], references: [id])
-  tipo            TipoNotificacion
-  titulo          String
-  descripcion     String
-  operacionId     String?
-  operacion       Operacion?       @relation(fields: [operacionId], references: [id])
-  solicitudId     String?
-  leida           Boolean          @default(false)
-  creadoEn        DateTime         @default(now())
+  id          String           @id @default(cuid())
+  usuarioId   String
+  usuario     Usuario          @relation(fields: [usuarioId], references: [id])
+  tipo        TipoNotificacion
+  titulo      String
+  descripcion String
+  operacionId String?
+  operacion   Operacion?       @relation(fields: [operacionId], references: [id])
+  solicitudId String?
+  leida       Boolean          @default(false)
+  creadoEn    DateTime         @default(now())
 }
 
+// ─── PAGO MENSUAL ─────────────────────────────────────────────────────────────
+
 model PagoMensual {
-  id                  String      @id @default(cuid())
-  operacionId         String
-  operacion           Operacion   @relation(fields: [operacionId], references: [id])
-  numeroPago          Int
-  fechaVencimiento    DateTime
-  fechaPagoReal       DateTime?
-  capitalTotal        Float
-  interesTotal        Float
-  pagoTotal           Float
-  saldo               Float
+  id               String    @id @default(cuid())
+  operacionId      String
+  operacion        Operacion @relation(fields: [operacionId], references: [id])
+  numeroPago       Int
+  fechaVencimiento DateTime
+  fechaPagoReal    DateTime?
 
-  status              StatusPago  @default(PENDIENTE)
-  montoPagado         Float?
-  interesOrdinarioPagado Float?
-  intereseMoratorio   Float?
-  diasMora            Int?
+  // Montos — Decimal(14,2)
+  capitalTotal           Decimal  @db.Decimal(14,2)
+  interesTotal           Decimal  @db.Decimal(14,2)
+  iva                    Decimal  @default(0) @db.Decimal(14,2)
+  pagoTotal              Decimal  @db.Decimal(14,2)
+  saldo                  Decimal  @db.Decimal(14,2)
 
-  comprobanteUrl      String?
-  registradoPorId     String?
-  registradoPor       Usuario?    @relation("RegistradoPorPago", fields: [registradoPorId], references: [id])
-  notas               String?
+  status                 StatusPago @default(PENDIENTE)
+  montoPagado            Decimal?   @db.Decimal(14,2)
+  interesOrdinarioPagado Decimal?   @db.Decimal(14,2)
+  interesesMoratorios    Decimal    @default(0) @db.Decimal(14,2)
+  ivaMoratorios          Decimal    @default(0) @db.Decimal(14,2)
+  diasAtraso             Int        @default(0)
+  diasMora               Int?
 
-  motivoCondonacion   String?
-  condonadoPor        String?
-  montoOriginal       Float?
+  comprobanteUrl    String?
+  registradoPorId   String?
+  registradoPor     Usuario?  @relation("RegistradoPorPago", fields: [registradoPorId], references: [id])
+  notas             String?
 
-  creadoEn            DateTime    @default(now())
-  actualizadoEn       DateTime    @updatedAt
+  motivoCondonacion String?
+  condonadoPor      String?
+  montoOriginal     Decimal?  @db.Decimal(14,2)
+
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+}
+
+// ─── BITÁCORA (auditoría global PLD) ─────────────────────────────────────────
+
+model Bitacora {
+  id          String   @id @default(cuid())
+  usuarioId   String
+  usuario     Usuario  @relation(fields: [usuarioId], references: [id])
+  accion      String
+  entidad     String
+  entidadId   String?
+  payloadJson Json?
+  ip          String?
+  createdAt   DateTime @default(now())
+
+  @@index([entidad, entidadId])
+  @@index([createdAt])
 }

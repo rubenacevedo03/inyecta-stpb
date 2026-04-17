@@ -1,16 +1,17 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
-import { operacionesApi } from '../lib/api';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { operacionesApi, acreditadosApi, inversionistasApi, participacionesApi } from '../lib/api';
 import { useAuth } from '../hooks/useAuth';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 type Producto = 'PYME' | 'PERSONAL' | 'EXPRESS' | 'STPB';
 type TipoAcreditado = 'PF' | 'PM';
 
-interface InvForm {
-  id: string;
-  nombre: string;
+interface PartForm {
+  uid: string;              // local key
+  inversionistaId: string;  // from catalog
+  nombre: string;           // display
   modo: 'MONTO' | 'PORCENTAJE';
   valor: number;
   tasaNeta: number;
@@ -31,13 +32,13 @@ function calcPMT(monto: number, tasaAnualDecimal: number, meses: number) {
 }
 
 // ─── Steps ─────────────────────────────────────────────────────────────────────
-const STEPS = ['Acreditado', 'Operación', 'Inversionistas', 'Confirmar'];
+const STEPS = ['Acreditado', 'Operación', 'Participaciones', 'Confirmar'];
 
 const PRODUCTOS: { value: Producto; label: string; color: string }[] = [
-  { value: 'PYME', label: 'PyME', color: 'bg-blue-600' },
-  { value: 'PERSONAL', label: 'Personal', color: 'bg-violet-600' },
-  { value: 'EXPRESS', label: 'Express', color: 'bg-amber-500' },
-  { value: 'STPB', label: 'Sé Tu Propio Banco', color: 'bg-[#c9a227]' },
+  { value: 'PYME',     label: 'PyME',              color: 'bg-blue-600'     },
+  { value: 'PERSONAL', label: 'Personal',           color: 'bg-violet-600'  },
+  { value: 'EXPRESS',  label: 'Express',            color: 'bg-amber-500'   },
+  { value: 'STPB',     label: 'Sé Tu Propio Banco', color: 'bg-[#c9a227]'  },
 ];
 
 // ─── Component ─────────────────────────────────────────────────────────────────
@@ -46,66 +47,125 @@ export default function NuevaOperacion() {
   const { user } = useAuth();
   const [step, setStep] = useState(0);
 
-  // ── Acreditado fields ─────────────────────────────────────────────
-  const [acreditadoNombre, setAcreditadoNombre] = useState('');
-  const [acreditadoRfc, setAcreditadoRfc] = useState('');
-  const [acreditadoTipo, setAcreditadoTipo] = useState<TipoAcreditado>('PF');
+  // ── Acreditado ────────────────────────────────────────────────────
+  const [acreditadoId, setAcreditadoId]       = useState('');   // FK catálogo
+  const [acreditadoBusq, setAcreditadoBusq]   = useState('');   // texto de búsqueda
+  const [showDropdown, setShowDropdown]        = useState(false);
+  const [modoAcreditado, setModoAcreditado]    = useState<'buscar' | 'nuevo'>('buscar');
+  // Campos del form (usados si modoAcreditado === 'nuevo' o para editar)
+  const [acreditadoNombre, setAcreditadoNombre]   = useState('');
+  const [acreditadoRfc, setAcreditadoRfc]         = useState('');
+  const [acreditadoTipo, setAcreditadoTipo]       = useState<TipoAcreditado>('PF');
   const [acreditadoTelefono, setAcreditadoTelefono] = useState('');
-  const [acreditadoEmail, setAcreditadoEmail] = useState('');
+  const [acreditadoEmail, setAcreditadoEmail]     = useState('');
   const [acreditadoDireccion, setAcreditadoDireccion] = useState('');
-  // PM extras
-  const [interesadoNombre, setInteresadoNombre] = useState('');
-  const [interesadoCargo, setInteresadoCargo] = useState('');
+  const [interesadoNombre, setInteresadoNombre]   = useState('');
+  const [interesadoCargo, setInteresadoCargo]     = useState('');
   const [interesadoTelefono, setInteresadoTelefono] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // ── Operación fields ──────────────────────────────────────────────
-  const [nombreOp, setNombreOp] = useState('');
-  const [producto, setProducto] = useState<Producto>('STPB');
-  const [monto, setMonto] = useState(3000000);
-  const [tasaAnual, setTasaAnual] = useState(18);          // % shown to user
-  const [plazoMeses, setPlazoMeses] = useState(24);
+  // ── Operación ─────────────────────────────────────────────────────
+  const [nombreOp, setNombreOp]               = useState('');
+  const [producto, setProducto]               = useState<Producto>('STPB');
+  const [monto, setMonto]                     = useState(3000000);
+  const [tasaAnual, setTasaAnual]             = useState(18);
+  const [plazoMeses, setPlazoMeses]           = useState(24);
   const [fechaPrimerPago, setFechaPrimerPago] = useState(() => {
     const d = new Date();
     d.setMonth(d.getMonth() + 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
   });
-  const [comisionApertura, setComisionApertura] = useState(3);     // %
-  const [spreadSofom, setSpreadSofom] = useState(4);               // %
-  const [adminFideicomiso, setAdminFideicomiso] = useState(1.5);   // %
-  const [comisionCobranza, setComisionCobranza] = useState(0.5);   // %
+  const [tasaMoratoriaAnual, setTasaMoratoriaAnual] = useState(36); // %
+  const [comisionApertura, setComisionApertura]     = useState(3);
+  const [spreadSofom, setSpreadSofom]               = useState(4);
+  const [adminFideicomiso, setAdminFideicomiso]     = useState(1.5);
+  const [comisionCobranza, setComisionCobranza]     = useState(0.5);
   const [sofomComoAcreditante, setSofomComoAcreditante] = useState(false);
-  const [sofomMonto, setSofomMonto] = useState(0);
-  const [sofomTasaNeta, setSofomTasaNeta] = useState(14);          // %
-  const [valorInmueble, setValorInmueble] = useState(0);
-  const [notas, setNotas] = useState('');
+  const [sofomMonto, setSofomMonto]                 = useState(0);
+  const [sofomTasaNeta, setSofomTasaNeta]           = useState(14);
+  const [valorInmueble, setValorInmueble]           = useState(0);
+  const [notas, setNotas]                           = useState('');
 
-  // ── Inversionistas ────────────────────────────────────────────────
-  const [inversionistas, setInversionistas] = useState<InvForm[]>([]);
+  // ── Participaciones ───────────────────────────────────────────────
+  const [participaciones, setParticipaciones] = useState<PartForm[]>([]);
+  const [invBusq, setInvBusq]                 = useState('');
+
+  // ─── Queries ──────────────────────────────────────────────────────
+  const { data: acreditadosSug = [] } = useQuery({
+    queryKey: ['acreditados-busq', acreditadoBusq],
+    queryFn: () => acreditadosApi.list(acreditadoBusq).then(r => r.data),
+    enabled: acreditadoBusq.length >= 2,
+    staleTime: 10_000,
+  });
+
+  const { data: inversionistasCat = [] } = useQuery({
+    queryKey: ['inversionistas-cat'],
+    queryFn: () => inversionistasApi.list().then(r => r.data),
+    staleTime: 60_000,
+  });
+
+  // Cerrar dropdown al hacer click afuera
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   // ── PMT preview ───────────────────────────────────────────────────
   const pmt = useMemo(() => calcPMT(monto, tasaAnual / 100, plazoMeses), [monto, tasaAnual, plazoMeses]);
-  const totalPct = inversionistas.reduce((s, inv) => {
-    return s + (inv.modo === 'PORCENTAJE' ? inv.valor : (monto > 0 ? (inv.valor / monto) * 100 : 0));
-  }, 0);
-  const invValido = inversionistas.length === 0 || Math.abs(totalPct - 100) < 0.01;
 
-  // ── Mutation ──────────────────────────────────────────────────────
-  const mutation = useMutation({
-    mutationFn: (data: any) => operacionesApi.create(data),
-    onSuccess: (res) => navigate(`/operaciones/${res.data.id}`),
-  });
+  const totalPct = participaciones.reduce((s, p) => {
+    return s + (p.modo === 'PORCENTAJE' ? p.valor : (monto > 0 ? (p.valor / monto) * 100 : 0));
+  }, 0);
+  const partValido = participaciones.length === 0 || Math.abs(totalPct - 100) < 0.01;
+
+  // ── Mutations ─────────────────────────────────────────────────────
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   // ── Helpers ───────────────────────────────────────────────────────
-  const n = (setter: (v: number) => void) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setter(parseFloat(e.target.value) || 0);
+  const n = (setter: (v: number) => void) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => setter(parseFloat(e.target.value) || 0);
 
   const inputCls = "w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-[#c9a227]/30 focus:border-[#c9a227] outline-none";
   const labelCls = "block text-sm font-medium text-gray-700 mb-1";
 
-  const addInv = () => {
-    setInversionistas(prev => [...prev, {
-      id: Date.now().toString(),
-      nombre: `Inversionista ${prev.length + 1}`,
+  const seleccionarAcreditado = (a: any) => {
+    setAcreditadoId(a.id);
+    setAcreditadoNombre(a.nombre);
+    setAcreditadoRfc(a.rfc || '');
+    setAcreditadoTipo(a.tipoPersona || 'PF');
+    setAcreditadoTelefono(a.telefono || '');
+    setAcreditadoEmail(a.email || '');
+    setAcreditadoDireccion(a.direccion || '');
+    setAcreditadoBusq(a.nombre);
+    setShowDropdown(false);
+  };
+
+  const limpiarAcreditado = () => {
+    setAcreditadoId('');
+    setAcreditadoBusq('');
+    setAcreditadoNombre('');
+    setAcreditadoRfc('');
+    setAcreditadoTelefono('');
+    setAcreditadoEmail('');
+    setAcreditadoDireccion('');
+  };
+
+  const addPart = () => {
+    const invDisponibles = inversionistasCat.filter(
+      (inv: any) => !participaciones.some(p => p.inversionistaId === inv.id)
+    );
+    if (invDisponibles.length === 0) return;
+    const inv: any = invDisponibles[0];
+    setParticipaciones(prev => [...prev, {
+      uid: Date.now().toString(),
+      inversionistaId: inv.id,
+      nombre: inv.nombre,
       modo: 'PORCENTAJE',
       valor: Math.max(0, r2(100 - totalPct)),
       tasaNeta: tasaAnual - spreadSofom,
@@ -113,58 +173,92 @@ export default function NuevaOperacion() {
     }]);
   };
 
-  const updateInv = (id: string, field: string, value: any) =>
-    setInversionistas(prev => prev.map(inv => inv.id === id ? { ...inv, [field]: value } : inv));
+  const updatePart = (uid: string, field: string, value: any) =>
+    setParticipaciones(prev => prev.map(p => p.uid === uid ? { ...p, [field]: value } : p));
 
-  const removeInv = (id: string) =>
-    setInversionistas(prev => prev.filter(inv => inv.id !== id));
+  const removePart = (uid: string) =>
+    setParticipaciones(prev => prev.filter(p => p.uid !== uid));
 
   // ── Submit ────────────────────────────────────────────────────────
-  const handleSubmit = () => {
-    const payload: any = {
-      nombre: nombreOp || `${acreditadoNombre} — ${producto}`,
-      producto,
-      acreditadoNombre,
-      acreditadoRfc: acreditadoRfc || null,
-      acreditadoTipo,
-      acreditadoTelefono: acreditadoTelefono || null,
-      acreditadoEmail: acreditadoEmail || null,
-      acreditadoDireccion: acreditadoDireccion || null,
-      monto,
-      tasaAnual: tasaAnual / 100,
-      plazoMeses,
-      fechaPrimerPago,
-      comisionApertura: comisionApertura / 100,
-      spreadSofom: spreadSofom / 100,
-      adminFideicomiso: adminFideicomiso / 100,
-      comisionCobranza: comisionCobranza / 100,
-      sofomComoAcreditante,
-      sofomMonto: sofomComoAcreditante ? sofomMonto : null,
-      sofomTasaNeta: sofomComoAcreditante ? sofomTasaNeta / 100 : null,
-      valorInmueble: valorInmueble || null,
-      notas: notas || null,
-      inversionistas: inversionistas.map(inv => ({
-        nombre: inv.nombre,
-        monto: inv.modo === 'MONTO' ? inv.valor : (monto * inv.valor / 100),
-        porcentaje: inv.modo === 'PORCENTAJE' ? inv.valor / 100 : inv.valor / monto,
-        tasaNeta: inv.tasaNeta / 100,
-        esSofom: inv.esSofom,
-      })),
-    };
-    // Append interesado info to notas for PM
-    if (acreditadoTipo === 'PM' && interesadoNombre) {
-      const interesadoInfo = `\nInteresado/Representante: ${interesadoNombre}${interesadoCargo ? ` (${interesadoCargo})` : ''}${interesadoTelefono ? ` — Tel: ${interesadoTelefono}` : ''}`;
-      payload.notas = (notas || '') + interesadoInfo;
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    setSubmitError('');
+    try {
+      // 1. Crear operación
+      const payload: any = {
+        nombre: nombreOp || `${acreditadoNombre} — ${producto}`,
+        producto,
+        // Acreditado: FK si ya existe, o inline para crear uno nuevo
+        ...(acreditadoId
+          ? { acreditadoId }
+          : {
+              acreditadoNombre,
+              acreditadoRfc: acreditadoRfc || null,
+              acreditadoTipo,
+              acreditadoTelefono: acreditadoTelefono || null,
+              acreditadoEmail: acreditadoEmail || null,
+              acreditadoDireccion: acreditadoDireccion || null,
+            }),
+        monto,
+        tasaAnual:          tasaAnual / 100,
+        plazoMeses,
+        fechaPrimerPago,
+        tasaMoratoriaAnual: tasaMoratoriaAnual / 100,
+        comisionApertura:   comisionApertura / 100,
+        spreadSofom:        spreadSofom / 100,
+        adminFideicomiso:   adminFideicomiso / 100,
+        comisionCobranza:   comisionCobranza / 100,
+        sofomComoAcreditante,
+        sofomMonto:  sofomComoAcreditante ? sofomMonto  : null,
+        sofomTasaNeta: sofomComoAcreditante ? sofomTasaNeta / 100 : null,
+        valorInmueble: valorInmueble || null,
+        notas: (() => {
+          let nota = notas || '';
+          if (acreditadoTipo === 'PM' && interesadoNombre) {
+            nota += `\nInteresado/Representante: ${interesadoNombre}${interesadoCargo ? ` (${interesadoCargo})` : ''}${interesadoTelefono ? ` — Tel: ${interesadoTelefono}` : ''}`;
+          }
+          return nota || null;
+        })(),
+      };
+
+      const opRes = await operacionesApi.create(payload);
+      const opId = opRes.data.id;
+
+      // 2. Crear participaciones (si hay)
+      for (const part of participaciones) {
+        const montoAport = part.modo === 'MONTO' ? part.valor : monto * part.valor / 100;
+        const porcAport  = part.modo === 'PORCENTAJE' ? part.valor / 100 : part.valor / monto;
+        await participacionesApi.create({
+          operacionId:            opId,
+          inversionistaId:        part.inversionistaId,
+          porcentajeParticipacion: porcAport,
+          montoAportado:           montoAport,
+          tasaNeta:                part.tasaNeta / 100,
+          esSofom:                 part.esSofom,
+          orden:                   participaciones.indexOf(part),
+        });
+      }
+
+      navigate(`/operaciones/${opId}`);
+    } catch (err: any) {
+      setSubmitError(err?.response?.data?.error || 'Error al crear la operación. Verifica los datos.');
+    } finally {
+      setSubmitting(false);
     }
-    mutation.mutate(payload);
   };
 
   const canAdvance = () => {
-    if (step === 0) return acreditadoNombre.trim().length > 0;
-    if (step === 1) return monto > 0 && tasaAnual > 0 && plazoMeses > 0;
-    if (step === 2) return invValido;
+    if (step === 0) return (acreditadoId || acreditadoNombre.trim().length > 0);
+    if (step === 1) return monto > 0 && tasaAnual > 0 && plazoMeses > 0 && tasaMoratoriaAnual > 0;
+    if (step === 2) return partValido;
     return true;
   };
+
+  const invFiltrados = useMemo(() =>
+    (inversionistasCat as any[]).filter(inv =>
+      inv.nombre.toLowerCase().includes(invBusq.toLowerCase()) ||
+      (inv.rfc || '').toLowerCase().includes(invBusq.toLowerCase())
+    ), [inversionistasCat, invBusq]);
 
   // ── Render ────────────────────────────────────────────────────────
   return (
@@ -208,105 +302,163 @@ export default function NuevaOperacion() {
           <div className="space-y-6">
             <h3 className="text-lg font-semibold">Datos del Acreditado</h3>
 
-            {/* Tipo PF / PM */}
-            <div>
-              <label className={labelCls}>Tipo de Persona *</label>
-              <div className="flex gap-3">
-                {(['PF', 'PM'] as TipoAcreditado[]).map(t => (
-                  <button
-                    key={t}
-                    onClick={() => setAcreditadoTipo(t)}
-                    className={`flex-1 py-2.5 rounded-lg border-2 text-sm font-semibold transition-colors ${
-                      acreditadoTipo === t
-                        ? 'border-[#c9a227] bg-[#c9a227]/10 text-[#1a1a1a]'
-                        : 'border-gray-200 text-gray-500 hover:border-gray-300'
-                    }`}
-                  >
-                    {t === 'PF' ? 'Persona Física' : 'Persona Moral'}
-                  </button>
-                ))}
-              </div>
+            {/* Selector de modo */}
+            <div className="flex gap-2">
+              {(['buscar', 'nuevo'] as const).map(m => (
+                <button
+                  key={m}
+                  onClick={() => { setModoAcreditado(m); limpiarAcreditado(); }}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                    modoAcreditado === m
+                      ? 'bg-[#1a1a1a] text-white border-[#1a1a1a]'
+                      : 'border-gray-300 text-gray-600 hover:border-gray-400'
+                  }`}
+                >
+                  {m === 'buscar' ? '🔍 Buscar en catálogo' : '+ Nuevo acreditado'}
+                </button>
+              ))}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <label className={labelCls}>
-                  {acreditadoTipo === 'PF' ? 'Nombre Completo' : 'Razón Social'} *
-                </label>
-                <input
-                  type="text"
-                  value={acreditadoNombre}
-                  onChange={e => setAcreditadoNombre(e.target.value)}
-                  placeholder={acreditadoTipo === 'PF' ? 'Ej: Juan Pérez Martínez' : 'Ej: Desarrollos del Norte S.A. de C.V.'}
-                  className={inputCls}
-                />
-              </div>
-
-              <div>
-                <label className={labelCls}>RFC</label>
-                <input
-                  type="text"
-                  value={acreditadoRfc}
-                  onChange={e => setAcreditadoRfc(e.target.value.toUpperCase())}
-                  placeholder={acreditadoTipo === 'PF' ? 'PEMJ800101XXX' : 'DEN200101ABC'}
-                  maxLength={13}
-                  className={inputCls + ' uppercase'}
-                />
-              </div>
-
-              <div>
-                <label className={labelCls}>Teléfono</label>
-                <input type="tel" value={acreditadoTelefono} onChange={e => setAcreditadoTelefono(e.target.value)} placeholder="444-123-4567" className={inputCls} />
-              </div>
-
-              <div className="col-span-2">
-                <label className={labelCls}>Correo Electrónico</label>
-                <input type="email" value={acreditadoEmail} onChange={e => setAcreditadoEmail(e.target.value)} placeholder="contacto@empresa.com" className={inputCls} />
-              </div>
-
-              <div className="col-span-2">
-                <label className={labelCls}>Domicilio</label>
-                <input type="text" value={acreditadoDireccion} onChange={e => setAcreditadoDireccion(e.target.value)} placeholder="Av. Principal 100, Col. Centro, C.P. 78000, SLP" className={inputCls} />
-              </div>
-            </div>
-
-            {/* PM: datos del interesado / representante */}
-            {acreditadoTipo === 'PM' && (
-              <div className="border border-[#c9a227]/30 bg-amber-50/40 rounded-xl p-5">
-                <h4 className="font-semibold text-sm mb-4 text-amber-800">Representante / Persona de Contacto (Persona Moral)</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <label className={labelCls}>Nombre del Representante Legal / Interesado</label>
+            {/* Búsqueda en catálogo */}
+            {modoAcreditado === 'buscar' && (
+              <div className="relative" ref={dropdownRef}>
+                <label className={labelCls}>Buscar acreditado *</label>
+                {acreditadoId ? (
+                  <div className="flex items-center gap-3 p-3 border-2 border-green-400 bg-green-50 rounded-lg">
+                    <div className="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center text-sm font-bold">
+                      {acreditadoNombre.charAt(0)}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-green-800">{acreditadoNombre}</p>
+                      {acreditadoRfc && <p className="text-xs text-green-600">RFC: {acreditadoRfc}</p>}
+                    </div>
+                    <button
+                      onClick={limpiarAcreditado}
+                      className="text-green-600 hover:text-red-500 text-lg font-bold transition-colors"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ) : (
+                  <>
                     <input
                       type="text"
-                      value={interesadoNombre}
-                      onChange={e => setInteresadoNombre(e.target.value)}
-                      placeholder="Nombre completo"
+                      value={acreditadoBusq}
+                      onChange={e => { setAcreditadoBusq(e.target.value); setShowDropdown(true); }}
+                      onFocus={() => acreditadoBusq.length >= 2 && setShowDropdown(true)}
+                      placeholder="Escribe nombre o RFC..."
                       className={inputCls}
                     />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Cargo</label>
-                    <input
-                      type="text"
-                      value={interesadoCargo}
-                      onChange={e => setInteresadoCargo(e.target.value)}
-                      placeholder="Director General, Apoderado Legal, etc."
-                      className={inputCls}
-                    />
-                  </div>
-                  <div>
-                    <label className={labelCls}>Teléfono directo</label>
-                    <input
-                      type="tel"
-                      value={interesadoTelefono}
-                      onChange={e => setInteresadoTelefono(e.target.value)}
-                      placeholder="444-987-6543"
-                      className={inputCls}
-                    />
+                    {showDropdown && acreditadosSug.length > 0 && (
+                      <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-52 overflow-y-auto">
+                        {(acreditadosSug as any[]).map((a: any) => (
+                          <button
+                            key={a.id}
+                            onMouseDown={() => seleccionarAcreditado(a)}
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#c9a227]/10 text-left transition-colors"
+                          >
+                            <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                              {a.nombre.charAt(0)}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">{a.nombre}</p>
+                              <p className="text-xs text-gray-500">{a.rfc || 'Sin RFC'} · {a.tipoPersona}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {showDropdown && acreditadoBusq.length >= 2 && acreditadosSug.length === 0 && (
+                      <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow p-4 text-sm text-gray-400 text-center">
+                        No se encontraron resultados.{' '}
+                        <button
+                          className="text-[#c9a227] font-medium hover:underline"
+                          onMouseDown={() => { setModoAcreditado('nuevo'); setAcreditadoNombre(acreditadoBusq); setShowDropdown(false); }}
+                        >
+                          Crear nuevo
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Formulario nuevo acreditado */}
+            {(modoAcreditado === 'nuevo' || (modoAcreditado === 'buscar' && !acreditadoId)) && modoAcreditado === 'nuevo' && (
+              <>
+                {/* Tipo PF / PM */}
+                <div>
+                  <label className={labelCls}>Tipo de Persona *</label>
+                  <div className="flex gap-3">
+                    {(['PF', 'PM'] as TipoAcreditado[]).map(t => (
+                      <button
+                        key={t}
+                        onClick={() => setAcreditadoTipo(t)}
+                        className={`flex-1 py-2.5 rounded-lg border-2 text-sm font-semibold transition-colors ${
+                          acreditadoTipo === t
+                            ? 'border-[#c9a227] bg-[#c9a227]/10 text-[#1a1a1a]'
+                            : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                        }`}
+                      >
+                        {t === 'PF' ? 'Persona Física' : 'Persona Moral'}
+                      </button>
+                    ))}
                   </div>
                 </div>
-              </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className={labelCls}>
+                      {acreditadoTipo === 'PF' ? 'Nombre Completo' : 'Razón Social'} *
+                    </label>
+                    <input
+                      type="text"
+                      value={acreditadoNombre}
+                      onChange={e => setAcreditadoNombre(e.target.value)}
+                      placeholder={acreditadoTipo === 'PF' ? 'Ej: Juan Pérez Martínez' : 'Ej: Desarrollos del Norte S.A. de C.V.'}
+                      className={inputCls}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>RFC</label>
+                    <input type="text" value={acreditadoRfc} onChange={e => setAcreditadoRfc(e.target.value.toUpperCase())} placeholder={acreditadoTipo === 'PF' ? 'PEMJ800101XXX' : 'DEN200101ABC'} maxLength={13} className={inputCls + ' uppercase'} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Teléfono</label>
+                    <input type="tel" value={acreditadoTelefono} onChange={e => setAcreditadoTelefono(e.target.value)} placeholder="444-123-4567" className={inputCls} />
+                  </div>
+                  <div className="col-span-2">
+                    <label className={labelCls}>Correo Electrónico</label>
+                    <input type="email" value={acreditadoEmail} onChange={e => setAcreditadoEmail(e.target.value)} placeholder="contacto@empresa.com" className={inputCls} />
+                  </div>
+                  <div className="col-span-2">
+                    <label className={labelCls}>Domicilio</label>
+                    <input type="text" value={acreditadoDireccion} onChange={e => setAcreditadoDireccion(e.target.value)} placeholder="Av. Principal 100, Col. Centro, C.P. 78000, SLP" className={inputCls} />
+                  </div>
+                </div>
+
+                {/* PM: representante */}
+                {acreditadoTipo === 'PM' && (
+                  <div className="border border-[#c9a227]/30 bg-amber-50/40 rounded-xl p-5">
+                    <h4 className="font-semibold text-sm mb-4 text-amber-800">Representante / Persona de Contacto</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="col-span-2">
+                        <label className={labelCls}>Nombre del Representante Legal</label>
+                        <input type="text" value={interesadoNombre} onChange={e => setInteresadoNombre(e.target.value)} placeholder="Nombre completo" className={inputCls} />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Cargo</label>
+                        <input type="text" value={interesadoCargo} onChange={e => setInteresadoCargo(e.target.value)} placeholder="Director General, Apoderado Legal..." className={inputCls} />
+                      </div>
+                      <div>
+                        <label className={labelCls}>Teléfono directo</label>
+                        <input type="tel" value={interesadoTelefono} onChange={e => setInteresadoTelefono(e.target.value)} placeholder="444-987-6543" className={inputCls} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -350,7 +502,7 @@ export default function NuevaOperacion() {
                 </div>
               </div>
 
-              {/* Monto + Tasa + Plazo */}
+              {/* Financieros */}
               <div>
                 <label className={labelCls}>Monto del Crédito ($) *</label>
                 <input type="number" value={monto} onChange={n(setMonto)} className={inputCls} />
@@ -368,7 +520,24 @@ export default function NuevaOperacion() {
                 <input type="date" value={fechaPrimerPago} onChange={e => setFechaPrimerPago(e.target.value)} className={inputCls} />
               </div>
 
-              {/* Comisiones */}
+              {/* Tasa moratoria — nuevo campo requerido */}
+              <div>
+                <label className={labelCls}>
+                  Tasa Moratoria Anual (%) *
+                  <span className="ml-1 text-xs text-gray-400 font-normal">— aplicable en mora</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={tasaMoratoriaAnual}
+                  onChange={n(setTasaMoratoriaAnual)}
+                  className={`${inputCls} ${tasaMoratoriaAnual <= 0 ? 'border-red-400 focus:border-red-500' : ''}`}
+                />
+                {tasaMoratoriaAnual <= 0 && (
+                  <p className="text-xs text-red-500 mt-1">Campo requerido</p>
+                )}
+              </div>
+
               <div>
                 <label className={labelCls}>Comisión Apertura (%)</label>
                 <input type="number" step="0.1" value={comisionApertura} onChange={n(setComisionApertura)} className={inputCls} />
@@ -435,57 +604,75 @@ export default function NuevaOperacion() {
                 <div className="ml-auto text-right text-xs text-gray-400">
                   <p>{fmtMXN(monto)} · {tasaAnual}% · {plazoMeses} meses</p>
                   {valorInmueble > 0 && <p>LTV: {((monto / valorInmueble) * 100).toFixed(1)}%</p>}
+                  <p className="text-orange-400">Mora: {tasaMoratoriaAnual}% anual</p>
                 </div>
               </div>
             )}
           </div>
         )}
 
-        {/* ══ STEP 2: INVERSIONISTAS ═══════════════════════════════════════════ */}
+        {/* ══ STEP 2: PARTICIPACIONES ══════════════════════════════════════════ */}
         {step === 2 && (
           <div className="space-y-5">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-semibold">Inversionistas</h3>
-                <p className="text-sm text-gray-400 mt-0.5">Opcional — puede configurarse después desde el detalle de la operación</p>
+                <h3 className="text-lg font-semibold">Participaciones</h3>
+                <p className="text-sm text-gray-400 mt-0.5">Opcional — puedes configurarlo después desde el detalle</p>
               </div>
               <button
-                onClick={addInv}
-                className="flex items-center gap-1.5 px-4 py-2 bg-[#1a1a1a] text-white rounded-lg text-sm hover:bg-gray-800 transition-colors"
+                onClick={addPart}
+                disabled={(inversionistasCat as any[]).length === 0}
+                className="flex items-center gap-1.5 px-4 py-2 bg-[#1a1a1a] text-white rounded-lg text-sm hover:bg-gray-800 transition-colors disabled:opacity-40"
               >
                 + Agregar
               </button>
             </div>
 
+            {/* Filtro de catálogo */}
+            {(inversionistasCat as any[]).length > 0 && (
+              <input
+                type="text"
+                value={invBusq}
+                onChange={e => setInvBusq(e.target.value)}
+                placeholder="Filtrar inversionistas del catálogo..."
+                className={inputCls + ' text-xs py-2'}
+              />
+            )}
+
             {/* Validation */}
-            {inversionistas.length > 0 && (
-              <div className={`px-4 py-2 rounded-lg text-sm font-medium ${invValido ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+            {participaciones.length > 0 && (
+              <div className={`px-4 py-2 rounded-lg text-sm font-medium ${partValido ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
                 Suma de participaciones: {totalPct.toFixed(2)}%
-                {invValido ? ' ✓' : ` — falta ${(100 - totalPct).toFixed(2)}%`}
+                {partValido ? ' ✓' : ` — falta ${(100 - totalPct).toFixed(2)}%`}
               </div>
             )}
 
-            {inversionistas.length === 0 ? (
+            {participaciones.length === 0 ? (
               <div className="text-center py-10 border-2 border-dashed border-gray-200 rounded-xl text-gray-400">
-                <p className="text-sm">Sin inversionistas por ahora</p>
-                <p className="text-xs mt-1">Puedes agregarlos desde el detalle de la operación</p>
+                <p className="text-sm">Sin participaciones por ahora</p>
+                <p className="text-xs mt-1">Puedes agregarlas desde el detalle de la operación</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {inversionistas.map((inv, idx) => (
-                  <div key={inv.id} className={`p-4 rounded-xl border ${inv.esSofom ? 'border-[#c9a227]/30 bg-amber-50/30' : 'border-gray-200 bg-gray-50'}`}>
+                {participaciones.map((part, idx) => (
+                  <div key={part.uid} className={`p-4 rounded-xl border ${part.esSofom ? 'border-[#c9a227]/30 bg-amber-50/30' : 'border-gray-200 bg-gray-50'}`}>
                     <div className="flex items-center gap-3 mb-3">
-                      <span className="w-6 h-6 rounded-full bg-[#1a1a1a] text-white text-xs font-bold flex items-center justify-center">
-                        {idx + 1}
-                      </span>
-                      <input
-                        type="text"
-                        value={inv.nombre}
-                        onChange={e => updateInv(inv.id, 'nombre', e.target.value)}
-                        className="flex-1 text-sm font-medium bg-transparent border-none outline-none"
-                        placeholder="Nombre del inversionista"
-                      />
-                      <button onClick={() => removeInv(inv.id)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
+                      <span className="w-6 h-6 rounded-full bg-[#1a1a1a] text-white text-xs font-bold flex items-center justify-center">{idx + 1}</span>
+                      {/* Selector de inversionista del catálogo */}
+                      <select
+                        value={part.inversionistaId}
+                        onChange={e => {
+                          const inv = (inversionistasCat as any[]).find(i => i.id === e.target.value);
+                          if (inv) updatePart(part.uid, 'inversionistaId', inv.id);
+                          if (inv) updatePart(part.uid, 'nombre', inv.nombre);
+                        }}
+                        className="flex-1 text-sm font-medium bg-white border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-[#c9a227]"
+                      >
+                        {invFiltrados.map((inv: any) => (
+                          <option key={inv.id} value={inv.id}>{inv.nombre}</option>
+                        ))}
+                      </select>
+                      <button onClick={() => removePart(part.uid)} className="text-red-400 hover:text-red-600 text-lg leading-none">×</button>
                     </div>
                     <div className="grid grid-cols-3 gap-3">
                       <div>
@@ -494,8 +681,8 @@ export default function NuevaOperacion() {
                           {(['MONTO', 'PORCENTAJE'] as const).map(m => (
                             <button
                               key={m}
-                              onClick={() => updateInv(inv.id, 'modo', m)}
-                              className={`flex-1 py-1.5 text-xs rounded font-medium transition-colors ${inv.modo === m ? 'bg-[#1a1a1a] text-white' : 'bg-gray-200 text-gray-600'}`}
+                              onClick={() => updatePart(part.uid, 'modo', m)}
+                              className={`flex-1 py-1.5 text-xs rounded font-medium transition-colors ${part.modo === m ? 'bg-[#1a1a1a] text-white' : 'bg-gray-200 text-gray-600'}`}
                             >
                               {m === 'MONTO' ? '$' : '%'}
                             </button>
@@ -504,19 +691,19 @@ export default function NuevaOperacion() {
                       </div>
                       <div>
                         <label className="text-xs text-gray-500 block mb-1">
-                          {inv.modo === 'MONTO' ? 'Monto ($)' : 'Porcentaje (%)'}
+                          {part.modo === 'MONTO' ? 'Monto ($)' : 'Porcentaje (%)'}
                         </label>
                         <input
                           type="number"
-                          step={inv.modo === 'PORCENTAJE' ? '0.1' : '100000'}
-                          value={inv.valor}
-                          onChange={e => updateInv(inv.id, 'valor', parseFloat(e.target.value) || 0)}
+                          step={part.modo === 'PORCENTAJE' ? '0.1' : '100000'}
+                          value={part.valor}
+                          onChange={e => updatePart(part.uid, 'valor', parseFloat(e.target.value) || 0)}
                           className="w-full border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-[#c9a227]"
                         />
                         <p className="text-xs text-gray-400 mt-0.5">
-                          {inv.modo === 'MONTO'
-                            ? `${monto > 0 ? ((inv.valor / monto) * 100).toFixed(1) : 0}%`
-                            : fmtMXN(monto * inv.valor / 100)}
+                          {part.modo === 'MONTO'
+                            ? `${monto > 0 ? ((part.valor / monto) * 100).toFixed(1) : 0}%`
+                            : fmtMXN(monto * part.valor / 100)}
                         </p>
                       </div>
                       <div>
@@ -524,11 +711,21 @@ export default function NuevaOperacion() {
                         <input
                           type="number"
                           step="0.1"
-                          value={inv.tasaNeta}
-                          onChange={e => updateInv(inv.id, 'tasaNeta', parseFloat(e.target.value) || 0)}
+                          value={part.tasaNeta}
+                          onChange={e => updatePart(part.uid, 'tasaNeta', parseFloat(e.target.value) || 0)}
                           className="w-full border rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-[#c9a227]"
                         />
                       </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <input
+                        type="checkbox"
+                        id={`sofom-${part.uid}`}
+                        checked={part.esSofom}
+                        onChange={e => updatePart(part.uid, 'esSofom', e.target.checked)}
+                        className="rounded"
+                      />
+                      <label htmlFor={`sofom-${part.uid}`} className="text-xs text-gray-600">Es SOFOM</label>
                     </div>
                   </div>
                 ))}
@@ -542,26 +739,21 @@ export default function NuevaOperacion() {
           <div className="space-y-6">
             <h3 className="text-lg font-semibold">Confirmar Operación</h3>
 
-            {/* Error */}
-            {mutation.isError && (
+            {submitError && (
               <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
-                Error al crear la operación. Por favor verifica los datos e intenta nuevamente.
+                {submitError}
               </div>
             )}
 
-            {/* Summary grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* Acreditado */}
               <div className="bg-gray-50 rounded-xl p-4 border">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Acreditado</p>
                 <div className="space-y-1.5 text-sm">
-                  <div className="flex justify-between"><span className="text-gray-500">Tipo</span><span className="font-medium">{acreditadoTipo === 'PF' ? 'Persona Física' : 'Persona Moral'}</span></div>
+                  {acreditadoId && <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-400" /><span className="text-xs text-green-600">Del catálogo</span></div>}
                   <div className="flex justify-between"><span className="text-gray-500">Nombre</span><span className="font-medium">{acreditadoNombre}</span></div>
                   {acreditadoRfc && <div className="flex justify-between"><span className="text-gray-500">RFC</span><span className="font-medium">{acreditadoRfc}</span></div>}
-                  {acreditadoTelefono && <div className="flex justify-between"><span className="text-gray-500">Teléfono</span><span className="font-medium">{acreditadoTelefono}</span></div>}
-                  {acreditadoTipo === 'PM' && interesadoNombre && (
-                    <div className="flex justify-between"><span className="text-gray-500">Representante</span><span className="font-medium">{interesadoNombre}</span></div>
-                  )}
+                  <div className="flex justify-between"><span className="text-gray-500">Tipo</span><span className="font-medium">{acreditadoTipo === 'PF' ? 'Persona Física' : 'Persona Moral'}</span></div>
                 </div>
               </div>
 
@@ -572,6 +764,7 @@ export default function NuevaOperacion() {
                   <div className="flex justify-between"><span className="text-gray-500">Producto</span><span className="font-semibold">{producto}</span></div>
                   <div className="flex justify-between"><span className="text-gray-500">Monto</span><span className="font-medium">{fmtMXN(monto)}</span></div>
                   <div className="flex justify-between"><span className="text-gray-500">Tasa Anual</span><span className="font-medium">{tasaAnual}%</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Tasa Moratoria</span><span className="font-medium text-orange-600">{tasaMoratoriaAnual}%</span></div>
                   <div className="flex justify-between"><span className="text-gray-500">Plazo</span><span className="font-medium">{plazoMeses} meses</span></div>
                   <div className="flex justify-between"><span className="text-gray-500">Primer Pago</span><span className="font-medium">{fechaPrimerPago}</span></div>
                   {valorInmueble > 0 && <div className="flex justify-between"><span className="text-gray-500">LTV</span><span className="font-medium">{((monto / valorInmueble) * 100).toFixed(1)}%</span></div>}
@@ -586,7 +779,7 @@ export default function NuevaOperacion() {
                 <p className="text-3xl font-bold text-[#c9a227]">{fmtMXN(pmt)}</p>
               </div>
               <div className="text-right text-sm text-gray-400">
-                <p>{inversionistas.length} inversionista{inversionistas.length !== 1 ? 's' : ''}</p>
+                <p>{participaciones.length} participación{participaciones.length !== 1 ? 'es' : ''}</p>
                 <p>{plazoMeses} pagos programados</p>
               </div>
             </div>
@@ -614,10 +807,10 @@ export default function NuevaOperacion() {
           ) : (
             <button
               onClick={handleSubmit}
-              disabled={mutation.isPending}
+              disabled={submitting}
               className="px-8 py-2.5 bg-[#c9a227] text-[#1a1a1a] rounded-xl text-sm font-bold hover:bg-yellow-500 disabled:opacity-50 transition-colors"
             >
-              {mutation.isPending ? 'Creando operación...' : '✓ Crear Operación'}
+              {submitting ? 'Creando operación...' : '✓ Crear Operación'}
             </button>
           )}
         </div>

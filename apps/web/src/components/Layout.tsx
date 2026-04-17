@@ -3,7 +3,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useState } from 'react';
 import {
   LayoutDashboard, Calculator, FileText, TrendingUp,
-  Users, Bell, LogOut, Menu, ChevronRight
+  Users, Bell, LogOut, Menu, ChevronRight, UserCheck, Briefcase
 } from 'lucide-react';
 import NotificationPanel from './NotificationPanel';
 
@@ -18,6 +18,8 @@ export default function Layout() {
     { to: '/cotizador', icon: Calculator, label: 'Cotizador', roles: ['ADMIN', 'OPERADOR', 'CONSULTOR'] },
     { to: '/operaciones', icon: FileText, label: 'Operaciones', roles: ['ADMIN', 'OPERADOR', 'LEGAL', 'CONSULTOR'] },
     { to: '/cartera', icon: TrendingUp, label: 'Cartera Activa', roles: ['ADMIN', 'OPERADOR'] },
+    { to: '/acreditados', icon: UserCheck, label: 'Acreditados', roles: ['ADMIN', 'OPERADOR', 'LEGAL'] },
+    { to: '/inversionistas', icon: Briefcase, label: 'Inversionistas', roles: ['ADMIN', 'OPERADOR'] },
     { to: '/usuarios', icon: Users, label: 'Usuarios', roles: ['ADMIN'] },
   ].filter(item => !user || item.roles.includes(user.rol));
 
