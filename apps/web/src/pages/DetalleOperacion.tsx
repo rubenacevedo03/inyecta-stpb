@@ -6,6 +6,36 @@ import api from '../lib/api';
 import { useAuth } from '../hooks/useAuth';
 import { imprimirCorrida } from '../lib/printPDF';
 
+// ─── Amortización local (French) — espejo de Cotizador ────────────────────────
+function safeAddMonths(base: Date, months: number): Date {
+  const baseDay = base.getDate();
+  const totalMonths = base.getMonth() + months;
+  const yr = base.getFullYear() + Math.floor(totalMonths / 12);
+  const mo = ((totalMonths % 12) + 12) % 12;
+  const maxDay = new Date(yr, mo + 1, 0).getDate();
+  return new Date(yr, mo, Math.min(baseDay, maxDay));
+}
+
+function r2(n: number) { return Math.round(n * 100) / 100; }
+
+function calcAmortLocal(principal: number, tasaAnual: number, meses: number, fechaPrimerPago: Date) {
+  const r = tasaAnual / 12;
+  const factor = Math.pow(1 + r, meses);
+  const PMT = r === 0 ? principal / meses : (principal * r * factor) / (factor - 1);
+  const filas: any[] = [];
+  let saldo = principal;
+  let totalIntereses = 0;
+  for (let i = 1; i <= meses; i++) {
+    const interes = saldo * r;
+    const capital = PMT - interes;
+    totalIntereses += interes;
+    saldo = Math.max(0, saldo - capital);
+    const fecha = safeAddMonths(fechaPrimerPago, i - 1);
+    filas.push({ mes: i, fecha, capital: r2(capital), interes: r2(interes), total: r2(PMT), saldo: r2(saldo) });
+  }
+  return { pmt: r2(PMT), totalIntereses: r2(totalIntereses), totalPagado: r2(PMT * meses), filas };
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const BLOQUE_NOMBRES: Record<number, string> = {
@@ -912,6 +942,60 @@ export default function DetalleOperacion() {
                 });
               },
             })) ),
+            // ── Corrida Maestra SOFOM (sólo si hay participaciones) ──────────
+            ...( (op.participaciones && op.participaciones.length > 0) ? [{
+              title: 'Corrida Maestra SOFOM',
+              desc: `Vista consolidada: acreditado + ${op.participaciones.length} inversionista(s) + ingresos SOFOM por período.`,
+              icon: '🏦',
+              color: 'border-green-300 bg-green-50',
+              btnColor: 'bg-green-700 hover:bg-green-800',
+              action: async () => {
+                // Calcular amortización del acreditado
+                const montoOp   = Number(op.monto)     ?? 0;
+                const tasaOp    = Number(op.tasaAnual)  ?? 0;  // ya en decimal
+                const plazoOp   = Number(op.plazoMeses) ?? 0;
+                const fechaBase = op.fechaPrimerPago
+                  ? new Date(op.fechaPrimerPago + 'T12:00:00')
+                  : new Date();
+
+                const amortAcreditado = calcAmortLocal(montoOp, tasaOp, plazoOp, fechaBase);
+
+                // Calcular amortización de cada inversionista
+                const inversionistasData = (op.participaciones as any[]).map((part: any) => {
+                  const montoInv = Number(part.montoAportado) ?? 0;
+                  const tasaInv  = Number(part.tasaNeta)      ?? 0;  // ya en decimal
+                  const amortInv = calcAmortLocal(montoInv, tasaInv, plazoOp, fechaBase);
+                  return {
+                    nombre:        part.inversionista?.nombre || 'Inversionista',
+                    monto:         montoInv,
+                    tasaNeta:      tasaInv,
+                    porcentaje:    montoOp > 0 ? montoInv / montoOp : 0,
+                    pmt:           amortInv.pmt,
+                    totalIntereses: amortInv.totalIntereses,
+                    totalPagado:   amortInv.totalPagado,
+                    filas:         amortInv.filas,
+                  };
+                });
+
+                imprimirCorrida({
+                  tipo: 'maestra',
+                  nombre: op.acreditado?.nombre || 'Operación',
+                  monto: montoOp,
+                  tasaAnual: tasaOp,
+                  plazoMeses: plazoOp,
+                  pmt: amortAcreditado.pmt,
+                  comisionApertura: montoOp * (Number(op.comisionApertura) ?? 0),
+                  comisionAperturaPorc: Number(op.comisionApertura) ?? 0,
+                  totalIntereses: amortAcreditado.totalIntereses,
+                  totalPagado: amortAcreditado.totalPagado,
+                  filas: amortAcreditado.filas,
+                  inversionistas: inversionistasData,
+                  spreadSofomPorc:      Number(op.spreadSofom)        ?? 0,
+                  adminFideicomisoPorc: Number(op.adminFideicomiso)    ?? 0,
+                  comisionCobranzaPorc: Number(op.comisionCobranza)    ?? 0,
+                });
+              },
+            }] : [] ),
           ].map((item, idx) => (
             <div key={idx} className={`bg-white rounded-xl border shadow-sm p-6 ${item.color}`}>
               <div className="text-3xl mb-3">{item.icon}</div>

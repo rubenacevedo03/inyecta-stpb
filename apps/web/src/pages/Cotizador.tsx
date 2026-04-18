@@ -215,6 +215,19 @@ export default function Cotizador() {
       totalIntereses: amort.totalIntereses,
       totalPagado: amort.totalPagado,
       filas: amort.filas,
+      inversionistas: invData.map(inv => ({
+        nombre: inv.nombre,
+        monto: inv.montoReal,
+        tasaNeta: inv.tasaNeta / 100,
+        porcentaje: inv.porcentajeReal / 100,
+        pmt: inv.amort.pmt,
+        totalIntereses: inv.amort.totalIntereses,
+        totalPagado: inv.amort.totalPagado,
+        filas: inv.amort.filas,
+      })),
+      spreadSofomPorc: spreadSofom / 100,
+      adminFideicomisoPorc: adminFid / 100,
+      comisionCobranzaPorc: cobranza / 100,
     });
   };
 
